@@ -4,9 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from yfinance.exceptions import YFRateLimitError
 
-# -----------------------------
+# --------------------------------------------------
 # Page Config
-# -----------------------------
+# --------------------------------------------------
 st.set_page_config(
     page_title="Real-Time Stock Dashboard",
     layout="wide"
@@ -14,15 +14,15 @@ st.set_page_config(
 
 st.title("📊 Stock Price Dashboard")
 
-# -----------------------------
+# --------------------------------------------------
 # Sidebar Controls
-# -----------------------------
+# --------------------------------------------------
 st.sidebar.header("Settings")
 
 ticker = st.sidebar.text_input(
     "Stock Ticker",
     value="RELIANCE.NS",
-    help="Example: RELIANCE.NS, TCS.NS, AAPL, MSFT"
+    help="Examples: RELIANCE.NS, TCS.NS, AAPL, MSFT"
 ).upper().strip()
 
 period = st.sidebar.selectbox(
@@ -37,46 +37,41 @@ ma_window = st.sidebar.slider(
     value=20
 )
 
-# -----------------------------
-# Data Loader (Rate-Limit Safe)
-# -----------------------------
-@st.cache_data(ttl=300)  # 5 minutes cache
+# --------------------------------------------------
+# Data Loader (Safe + Cached)
+# --------------------------------------------------
+@st.cache_data(ttl=300)  # 5 minutes
 def load_data(ticker: str, period: str):
-    try:
-        stock = yf.Ticker(ticker)
-        df = stock.history(period=period)
-        if df.empty:
-            return None
-        return df
-    except YFRateLimitError:
-        return "RATE_LIMIT"
-    except Exception:
-        return None
+    stock = yf.Ticker(ticker)
+    return stock.history(period=period)
 
-df = load_data(ticker, period)
-
-# -----------------------------
-# Error Handling
-# -----------------------------
-if df == "RATE_LIMIT":
+# --------------------------------------------------
+# Fetch Data with Error Handling
+# --------------------------------------------------
+try:
+    df = load_data(ticker, period)
+except YFRateLimitError:
     st.warning(
         "⚠️ Yahoo Finance rate limit reached.\n\n"
-        "Please wait a few minutes and refresh the page."
+        "Please wait a few minutes and refresh."
     )
     st.stop()
-
-if df is None:
-    st.error("❌ No data available. Please check the ticker symbol.")
+except Exception as e:
+    st.error("❌ Unexpected error while fetching data.")
     st.stop()
 
-# -----------------------------
+if df.empty:
+    st.error("❌ No data found. Please check the ticker symbol.")
+    st.stop()
+
+# --------------------------------------------------
 # Feature Engineering
-# -----------------------------
+# --------------------------------------------------
 df["MA"] = df["Close"].rolling(window=ma_window).mean()
 
-# -----------------------------
-# Plotly Candlestick Chart
-# -----------------------------
+# --------------------------------------------------
+# Candlestick Chart
+# --------------------------------------------------
 fig = go.Figure()
 
 fig.add_candlestick(
@@ -105,30 +100,19 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-# -----------------------------
+# --------------------------------------------------
 # Metrics
-# -----------------------------
+# --------------------------------------------------
 col1, col2, col3 = st.columns(3)
 
-col1.metric(
-    "Last Close",
-    f"₹{df['Close'].iloc[-1]:.2f}"
-)
+col1.metric("Last Close", f"₹{df['Close'].iloc[-1]:.2f}")
+col2.metric("High", f"₹{df['High'].max():.2f}")
+col3.metric("Low", f"₹{df['Low'].min():.2f}")
 
-col2.metric(
-    "Highest Price",
-    f"₹{df['High'].max():.2f}"
-)
-
-col3.metric(
-    "Lowest Price",
-    f"₹{df['Low'].min():.2f}"
-)
-
-# -----------------------------
+# --------------------------------------------------
 # Footer
-# -----------------------------
+# --------------------------------------------------
 st.caption(
     "📌 Data Source: Yahoo Finance (via yfinance)\n"
-    "• Cached for 5 minutes to prevent rate limiting"
+    "• Cached for 5 minutes to avoid rate limiting"
 )
