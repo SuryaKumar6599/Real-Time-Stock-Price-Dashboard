@@ -2,32 +2,83 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from yfinance.exceptions import YFRateLimitError
 
-st.set_page_config(page_title="Stock Dashboard", layout="wide")
+# -----------------------------
+# Page Config
+# -----------------------------
+st.set_page_config(
+    page_title="Real-Time Stock Dashboard",
+    layout="wide"
+)
 
-st.title("📊 Real-Time Stock Price Dashboard")
+st.title("📊 Stock Price Dashboard")
 
-# Sidebar
-ticker = st.sidebar.text_input("Stock Ticker", "RELIANCE.NS")
-period = st.sidebar.selectbox("Period", ["1mo", "3mo", "6mo", "1y"])
-ma_window = st.sidebar.slider("Moving Average Window", 5, 50, 20)
+# -----------------------------
+# Sidebar Controls
+# -----------------------------
+st.sidebar.header("Settings")
 
-@st.cache_data(ttl=60)
-def load_data(ticker, period):
-    stock = yf.Ticker(ticker)
-    return stock.history(period=period)
+ticker = st.sidebar.text_input(
+    "Stock Ticker",
+    value="RELIANCE.NS",
+    help="Example: RELIANCE.NS, TCS.NS, AAPL, MSFT"
+).upper().strip()
+
+period = st.sidebar.selectbox(
+    "Historical Period",
+    ["1mo", "3mo", "6mo", "1y"]
+)
+
+ma_window = st.sidebar.slider(
+    "Moving Average Window",
+    min_value=5,
+    max_value=50,
+    value=20
+)
+
+# -----------------------------
+# Data Loader (Rate-Limit Safe)
+# -----------------------------
+@st.cache_data(ttl=300)  # 5 minutes cache
+def load_data(ticker: str, period: str):
+    try:
+        stock = yf.Ticker(ticker)
+        df = stock.history(period=period)
+        if df.empty:
+            return None
+        return df
+    except YFRateLimitError:
+        return "RATE_LIMIT"
+    except Exception:
+        return None
 
 df = load_data(ticker, period)
 
-if df.empty:
-    st.error("Invalid ticker or no data available.")
+# -----------------------------
+# Error Handling
+# -----------------------------
+if df == "RATE_LIMIT":
+    st.warning(
+        "⚠️ Yahoo Finance rate limit reached.\n\n"
+        "Please wait a few minutes and refresh the page."
+    )
     st.stop()
 
-# Moving Average
-df["MA"] = df["Close"].rolling(ma_window).mean()
+if df is None:
+    st.error("❌ No data available. Please check the ticker symbol.")
+    st.stop()
 
-# Candlestick Chart
+# -----------------------------
+# Feature Engineering
+# -----------------------------
+df["MA"] = df["Close"].rolling(window=ma_window).mean()
+
+# -----------------------------
+# Plotly Candlestick Chart
+# -----------------------------
 fig = go.Figure()
+
 fig.add_candlestick(
     x=df.index,
     open=df["Open"],
@@ -36,21 +87,48 @@ fig.add_candlestick(
     close=df["Close"],
     name="Price"
 )
-fig.add_scatter(
-    x=df.index,
-    y=df["MA"],
-    mode="lines",
-    name=f"MA {ma_window}"
+
+fig.add_trace(
+    go.Scatter(
+        x=df.index,
+        y=df["MA"],
+        mode="lines",
+        name=f"MA {ma_window}"
+    )
 )
 
-fig.update_layout(height=500, xaxis_rangeslider_visible=False)
+fig.update_layout(
+    height=500,
+    xaxis_rangeslider_visible=False,
+    margin=dict(l=20, r=20, t=40, b=20)
+)
 
 st.plotly_chart(fig, use_container_width=True)
 
+# -----------------------------
 # Metrics
+# -----------------------------
 col1, col2, col3 = st.columns(3)
-col1.metric("Last Close", f"₹{df['Close'][-1]:.2f}")
-col2.metric("High", f"₹{df['High'].max():.2f}")
-col3.metric("Low", f"₹{df['Low'].min():.2f}")
 
-st.caption("Data source: Yahoo Finance | Auto-refresh every 60s")
+col1.metric(
+    "Last Close",
+    f"₹{df['Close'].iloc[-1]:.2f}"
+)
+
+col2.metric(
+    "Highest Price",
+    f"₹{df['High'].max():.2f}"
+)
+
+col3.metric(
+    "Lowest Price",
+    f"₹{df['Low'].min():.2f}"
+)
+
+# -----------------------------
+# Footer
+# -----------------------------
+st.caption(
+    "📌 Data Source: Yahoo Finance (via yfinance)\n"
+    "• Cached for 5 minutes to prevent rate limiting"
+)
